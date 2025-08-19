@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>คลังสินค้า (ไฟล์เดียว) • ปุ่มลัด + หมวด + Auto-code</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@zxing/library@0.20.0"></script>
+  <style>body{font-family:'Noto Sans Thai',sans-serif;padding:1rem;max-width:700px;margin:auto;background:#f9fafb;color:#111}
+    .card{background:#fff;padding:1rem;margin:.5rem 0;border:1px solid #ddd;border-radius:.75rem;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+    .grid{display:grid;gap:.5rem;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}
+    label{font-size:.9rem;display:flex;flex-direction:column;gap:.25rem}
+    input,select{padding:.35rem .5rem;font-size:1rem;border:1px solid #ccc;border-radius:.5rem}
+    button{padding:.45rem .75rem;border:none;border-radius:.5rem;cursor:pointer}
+    .btn-primary{background:#2563eb;color:#fff}
+    .btn-secondary{background:#6b7280;color:#fff}
+    .btn-ghost{background:none;color:#111;border:1px solid #ccc}
+    .toolbar{display:flex;justify-content:space-between;align-items:center;margin:.5rem 0}
+    .list .item{padding:.5rem;border-bottom:1px solid #eee}
+    .chips{display:flex;gap:.25rem;flex-wrap:wrap;margin-top:.25rem}
+    .chip{font-size:.75rem;padding:.15rem .45rem;border-radius:.6rem;border:1px solid #ddd;background:#e5e7eb;color:#111}
+  </style>
+</head>
+<body>
+  <h1>📦 คลังสินค้า</h1>
+  <section id="tab-products" class="tab active">
+    <form id="productForm" class="card">
+      <h3>เพิ่ม/แก้ไขสินค้า</h3>
+      <div class="grid">
+        <label>รหัส/บาร์โค้ด
+          <input type="text" id="pCode" placeholder="เช่น QR001" />
+        </label>
+        <label>ชื่อสินค้า
+          <input type="text" id="pName" placeholder="น้ำดื่ม 500ml" />
+        </label>
+        <label>หมวดสินค้า (คั่นด้วย ,)
+          <input type="text" id="pCats" placeholder="เช่น อาหาร, เครื่องดื่ม" />
+        </label>
+        <label>หน่วย
+          <input type="text" id="pUnit" placeholder="ขวด, กล่อง, ชิ้น" />
+        </label>
+        <label>สต็อกขั้นต่ำ (เตือน)
+          <input type="number" id="pMin" inputmode="numeric" min="0" value="0" />
+        </label>
+        <label>ที่เก็บ (ถ้ามี)
+          <input type="text" id="pLocation" placeholder="เช่น ชั้น A1" />
+        </label>
+      </div>
+      <div class="row wrap" style="margin-top:.5rem">
+        <button type="submit" class="btn-primary">บันทึกสินค้า</button>
+        <button type="button" id="resetProductForm" class="btn-ghost">ล้างฟอร์ม</button>
+      </div>
+    </form>
+
+    <div class="card">
+      <h3>รับเข้าหลายรหัส (Auto-code)</h3>
+      <div class="grid">
+        <label>Prefix
+          <input type="text" id="batchPrefix" placeholder="QR" />
+        </label>
+        <label>เริ่มจากเลข
+          <input type="number" id="batchStart" value="1" min="1" />
+        </label>
+        <label>จำนวนที่ต้องการ
+          <input type="number" id="batchCount" value="1" min="1" max="1000" />
+        </label>
+        <label>จำนวนหลัก (padding)
+          <input type="number" id="batchPad" value="3" min="1" max="10" />
+        </label>
+        <label>Template ชื่อสินค้า
+          <input type="text" id="batchNameTpl" placeholder="สินค้า {code}" />
+        </label>
+        <label>หมวดสินค้า (คั่นด้วย ,)
+          <input type="text" id="batchCats" placeholder="เช่น เครื่องดื่ม, เบเกอรี่" />
+        </label>
+        <label>หน่วย
+          <input type="text" id="batchUnit" placeholder="ชิ้น / กล่อง" />
+        </label>
+        <label>ที่เก็บ
+          <input type="text" id="batchLocation" placeholder="เช่น ชั้น A1" />
+        </label>
+        <label>ขั้นต่ำ
+          <input type="number" id="batchMin" value="0" min="0" />
+        </label>
+      </div>
+      <button type="button" id="batchAddBtn" class="btn-secondary">สร้างสินค้า + รับเข้า</button>
+      <p class="muted">* เช่น Prefix QR, Start=1, Count=100, Pad=3 → QR001 ถึง QR100</p>
+    </div>
+
+    <div class="toolbar">
+      <input type="search" id="searchProduct" placeholder="ค้นหาชื่อ/รหัส/หมวด..." />
+      <span id="productCount"></span>
+    </div>
+    <div class="list" id="productList"></div>
+  </section>
+
+  <script>
+    const $=s=>document.querySelector(s); const $$=s=>Array.from(document.querySelectorAll(s));
+    const state={products:[],txns:[]};
+    function save(){localStorage.setItem('wh-lite',JSON.stringify(state));}
+    function load(){const d=localStorage.getItem('wh-lite');if(d){Object.assign(state,JSON.parse(d));}}
+    function toCats(str){return (str||'').split(',').map(s=>s.trim()).filter(Boolean);}
+
+    const pForm=$('#productForm'),pCode=$('#pCode'),pName=$('#pName'),pCats=$('#pCats'),pUnit=$('#pUnit'),pMin=$('#pMin'),pLocation=$('#pLocation');
+    const batchPrefix=$('#batchPrefix'),batchStart=$('#batchStart'),batchCount=$('#batchCount'),batchPad=$('#batchPad'),batchNameTpl=$('#batchNameTpl'),batchCats=$('#batchCats'),batchUnit=$('#batchUnit'),batchLocation=$('#batchLocation'),batchMin=$('#batchMin');
+
+    pForm.addEventListener('submit',e=>{
+      e.preventDefault();
+      const code=pCode.value.trim(); if(!code){alert('กรอกรหัส');return;}
+      const ex=state.products.find(p=>p.code===code);
+      if(ex){ex.name=pName.value;ex.unit=pUnit.value;ex.min=Number(pMin.value||0);ex.location=pLocation.value;ex.cats=toCats(pCats.value);}else{
+        state.products.push({id:crypto.randomUUID(),code,name:pName.value,unit:pUnit.value,min:Number(pMin.value||0),location:pLocation.value,cats:toCats(pCats.value)});
+      }
+      save();renderProducts();pForm.reset();
+    });
+
+    batchAddBtn.addEventListener('click',()=>{
+      const prefix=batchPrefix.value.trim(); let start=Number(batchStart.value||1); let count=Number(batchCount.value||0); const pad=Number(batchPad.value||3);
+      const cats=toCats(batchCats.value); const unit=batchUnit.value; const loc=batchLocation.value; const min=Number(batchMin.value||0);
+      if(!prefix||count<=0){alert('กรอกค่าให้ถูกต้อง');return;}
+      let created=0;
+      for(let i=0;i<count;i++){
+        const num=String(start+i).padStart(pad,'0'); const code=prefix+num;
+        if(state.products.find(p=>p.code===code)) continue;
+        const name=batchNameTpl.value?batchNameTpl.value.replaceAll('{code}',code).replaceAll('{num}',num):`สินค้า ${code}`;
+        state.products.push({id:crypto.randomUUID(),code,name,unit,min,location:loc,cats});
+        created++;
+      }
+      save();renderProducts();alert('สร้างสินค้าใหม่ '+created+' รายการแล้ว');
+    });
+
+    function renderProducts(){
+      const q=$('#searchProduct').value.toLowerCase();
+      const list=state.products.filter(p=>!q||p.name.toLowerCase().includes(q)||p.code.toLowerCase().includes(q)||(p.cats||[]).some(c=>c.toLowerCase().includes(q)));
+      $('#productCount').textContent=`${list.length} รายการ`;
+      $('#productList').innerHTML='';
+      for(const p of list){
+        const chips=(p.cats||[]).map(c=>`<span class=\"chip\">${c}</span>`).join('');
+        $('#productList').innerHTML+=`<div class=item><strong>${p.name}</strong> <span class=muted>(${p.code})</span><div>${chips}</div><div class=muted>${p.unit||''} • ${p.location||''}</div></div>`;
+      }
+    }
+
+    load();renderProducts();
+  </script>
+</body>
+</html>
